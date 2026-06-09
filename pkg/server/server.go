@@ -146,6 +146,7 @@ type BgpServer struct {
 	globalRib    *table.TableManager
 	rsRib        *table.TableManager
 	roaManager   *roaManager
+	dampening    *dampeningManager
 	watcherMap   map[watchEventType][]*watcher
 	watcherMu    sync.RWMutex
 	zclient      *zebraClient
@@ -190,6 +191,7 @@ func NewBgpServer(opt ...ServerOption) *BgpServer {
 		watcherMap:   make(map[watchEventType][]*watcher),
 		uuidMap:      make(map[string]uuid.UUID),
 		roaManager:   newROAManager(roaTable, logger),
+		dampening:    newDampeningManager(),
 		roaTable:     roaTable,
 		logger:       logger,
 		logLevelVar:  lvl,
@@ -392,6 +394,7 @@ func (s *BgpServer) Serve() {
 	s.runningCancel = cancel
 	s.shutdownWG.Add(1)
 	s.listeners = make([]*netutils.TCPListener, 0, 2)
+	s.startDampeningTicker()
 
 	defer func() {
 		close(s.closeCh)
@@ -1255,8 +1258,14 @@ func (s *BgpServer) propagateUpdate(peer *peer, pathList []*table.Path) {
 				}
 			}
 
-			if dsts := rib.Update(path); len(dsts) > 0 {
-				s.propagateUpdateToNeighbors(rib, peer, path, dsts, true)
+			paths := []*table.Path{path}
+			if conf, ok := s.dampeningConfigFor(peer, path); ok {
+				paths = s.dampening.apply(path, conf)
+			}
+			for _, p := range paths {
+				if dsts := rib.Update(p); len(dsts) > 0 {
+					s.propagateUpdateToNeighbors(rib, peer, p, dsts, true)
+				}
 			}
 		}(path)
 	}
@@ -3361,6 +3370,9 @@ func (s *BgpServer) addPeerGroup(c *oc.PeerGroup) error {
 	name := c.Config.PeerGroupName
 	if _, y := s.peerGroupMap[name]; y {
 		return fmt.Errorf("can't overwrite the existing peer-group: %s", name)
+	}
+	if err := oc.SetPeerGroupStateValues(c, &s.bgpConfig.Global); err != nil {
+		return err
 	}
 
 	s.logger.Info("Add a peer group configuration",

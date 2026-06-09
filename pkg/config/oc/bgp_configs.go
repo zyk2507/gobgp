@@ -1960,6 +1960,9 @@ type PeerGroup struct {
 	// original -> bgp:peer-group-state
 	// State information relating to the BGP neighbor or group.
 	State PeerGroupState `mapstructure:"state" json:"state,omitempty"`
+	// original -> gobgp:dampening
+	// Parameters relating to route flap dampening.
+	Dampening Dampening `mapstructure:"dampening" json:"dampening,omitempty"`
 	// original -> bgp:timers
 	// Timers related to a BGP neighbor or group.
 	Timers Timers `mapstructure:"timers" json:"timers,omitempty"`
@@ -2021,6 +2024,9 @@ func (lhs *PeerGroup) Equal(rhs *PeerGroup) bool {
 		return false
 	}
 	if !lhs.Config.Equal(&(rhs.Config)) {
+		return false
+	}
+	if !lhs.Dampening.Equal(&(rhs.Dampening)) {
 		return false
 	}
 	if !lhs.Timers.Equal(&(rhs.Timers)) {
@@ -3310,6 +3316,77 @@ func (lhs *Messages) Equal(rhs *Messages) bool {
 	return true
 }
 
+// struct for container gobgp:dampening-state.
+// State information for route flap dampening.
+type DampeningState struct {
+	// Enable route flap dampening.
+	Enabled bool `mapstructure:"enabled" json:"enabled,omitempty"`
+	// Half-life in minutes.
+	HalfLife uint16 `mapstructure:"half-life" json:"half-life,omitempty"`
+	// Penalty threshold below which a suppressed route is reused.
+	ReuseThreshold uint32 `mapstructure:"reuse-threshold" json:"reuse-threshold,omitempty"`
+	// Penalty threshold above which a route is suppressed.
+	SuppressThreshold uint32 `mapstructure:"suppress-threshold" json:"suppress-threshold,omitempty"`
+	// Maximum suppression time in minutes.
+	MaxSuppressTime uint16 `mapstructure:"max-suppress-time" json:"max-suppress-time,omitempty"`
+}
+
+// struct for container gobgp:dampening-config.
+// Configuration parameters for route flap dampening.
+type DampeningConfig struct {
+	// Enable route flap dampening.
+	Enabled bool `mapstructure:"enabled" json:"enabled,omitempty"`
+	// Half-life in minutes.
+	HalfLife uint16 `mapstructure:"half-life" json:"half-life,omitempty"`
+	// Penalty threshold below which a suppressed route is reused.
+	ReuseThreshold uint32 `mapstructure:"reuse-threshold" json:"reuse-threshold,omitempty"`
+	// Penalty threshold above which a route is suppressed.
+	SuppressThreshold uint32 `mapstructure:"suppress-threshold" json:"suppress-threshold,omitempty"`
+	// Maximum suppression time in minutes.
+	MaxSuppressTime uint16 `mapstructure:"max-suppress-time" json:"max-suppress-time,omitempty"`
+}
+
+func (lhs *DampeningConfig) Equal(rhs *DampeningConfig) bool {
+	if lhs == nil || rhs == nil {
+		return false
+	}
+	if lhs.Enabled != rhs.Enabled {
+		return false
+	}
+	if lhs.HalfLife != rhs.HalfLife {
+		return false
+	}
+	if lhs.ReuseThreshold != rhs.ReuseThreshold {
+		return false
+	}
+	if lhs.SuppressThreshold != rhs.SuppressThreshold {
+		return false
+	}
+	if lhs.MaxSuppressTime != rhs.MaxSuppressTime {
+		return false
+	}
+	return true
+}
+
+// struct for container gobgp:dampening.
+// Parameters relating to route flap dampening.
+type Dampening struct {
+	// Configuration options for route flap dampening.
+	Config DampeningConfig `mapstructure:"config" json:"config,omitempty"`
+	// State information for route flap dampening.
+	State DampeningState `mapstructure:"state" json:"state,omitempty"`
+}
+
+func (lhs *Dampening) Equal(rhs *Dampening) bool {
+	if lhs == nil || rhs == nil {
+		return false
+	}
+	if !lhs.Config.Equal(&(rhs.Config)) {
+		return false
+	}
+	return true
+}
+
 // struct for container bgp:state.
 // State information relating to the BGP neighbor or group.
 type NeighborState struct {
@@ -3521,6 +3598,9 @@ type Neighbor struct {
 	// original -> bgp:neighbor-state
 	// State information relating to the BGP neighbor or group.
 	State NeighborState `mapstructure:"state" json:"state,omitempty"`
+	// original -> gobgp:dampening
+	// Parameters relating to route flap dampening.
+	Dampening Dampening `mapstructure:"dampening" json:"dampening,omitempty"`
 	// original -> bgp:timers
 	// Timers related to a BGP neighbor or group.
 	Timers Timers `mapstructure:"timers" json:"timers,omitempty"`
@@ -3582,6 +3662,9 @@ func (lhs *Neighbor) Equal(rhs *Neighbor) bool {
 		return false
 	}
 	if !lhs.Config.Equal(&(rhs.Config)) {
+		return false
+	}
+	if !lhs.Dampening.Equal(&(rhs.Dampening)) {
 		return false
 	}
 	if !lhs.Timers.Equal(&(rhs.Timers)) {
@@ -4324,6 +4407,9 @@ type AfiSafi struct {
 	// original -> bgp-mp:mp-graceful-restart
 	// Parameters relating to BGP graceful-restart.
 	MpGracefulRestart MpGracefulRestart `mapstructure:"mp-graceful-restart" json:"mp-graceful-restart,omitempty"`
+	// original -> gobgp:dampening
+	// Parameters relating to route flap dampening.
+	Dampening Dampening `mapstructure:"dampening" json:"dampening,omitempty"`
 	// original -> bgp-mp:afi-safi-config
 	// Configuration parameters for the AFI-SAFI.
 	Config AfiSafiConfig `mapstructure:"config" json:"config,omitempty"`
@@ -4391,6 +4477,9 @@ func (lhs *AfiSafi) Equal(rhs *AfiSafi) bool {
 		return false
 	}
 	if !lhs.MpGracefulRestart.Equal(&(rhs.MpGracefulRestart)) {
+		return false
+	}
+	if !lhs.Dampening.Equal(&(rhs.Dampening)) {
 		return false
 	}
 	if !lhs.Config.Equal(&(rhs.Config)) {
@@ -5164,6 +5253,9 @@ type Global struct {
 	// original -> bgp:graceful-restart
 	// Parameters relating the graceful restart mechanism for BGP.
 	GracefulRestart GracefulRestart `mapstructure:"graceful-restart" json:"graceful-restart,omitempty"`
+	// original -> gobgp:dampening
+	// Parameters relating to route flap dampening.
+	Dampening Dampening `mapstructure:"dampening" json:"dampening,omitempty"`
 	// original -> bgp:afi-safis
 	// Address family specific configuration.
 	AfiSafis []AfiSafi `mapstructure:"afi-safis" json:"afi-safis,omitempty"`
@@ -5195,6 +5287,9 @@ func (lhs *Global) Equal(rhs *Global) bool {
 		return false
 	}
 	if !lhs.GracefulRestart.Equal(&(rhs.GracefulRestart)) {
+		return false
+	}
+	if !lhs.Dampening.Equal(&(rhs.Dampening)) {
 		return false
 	}
 	if len(lhs.AfiSafis) != len(rhs.AfiSafis) {

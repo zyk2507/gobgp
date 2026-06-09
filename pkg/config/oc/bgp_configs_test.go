@@ -134,3 +134,62 @@ func TestConfigExample(t *testing.T) {
 		assert.True(neighbor.Config.SendSoftwareVersion)
 	}
 }
+
+func TestDampeningConfigDefaultsAndPeerGroupInheritance(t *testing.T) {
+	assert := assert.New(t)
+	configuredFields = nil
+
+	const config = `
+[global.config]
+  as = 65000
+  router-id = "192.0.2.254"
+
+[[peer-groups]]
+  [peer-groups.config]
+    peer-group-name = "pg-damp"
+    peer-as = 65001
+  [peer-groups.dampening.config]
+    half-life = 1
+    reuse-threshold = 2
+    suppress-threshold = 3
+    max-suppress-time = 4
+
+[[neighbors]]
+  [neighbors.config]
+    neighbor-address = "192.0.2.1"
+    peer-group = "pg-damp"
+    peer-as = 65001
+
+[[neighbors]]
+  [neighbors.config]
+    neighbor-address = "192.0.2.2"
+    peer-as = 65002
+    route-flap-damping = true
+`
+
+	opts := viper.DecodeHook(mapstructure.ComposeDecodeHookFunc(mapstructure.StringToNetIPAddrHookFunc(), mapstructure.StringToNetIPPrefixHookFunc()))
+	c := &BgpConfigSet{}
+	v := viper.New()
+	v.SetConfigType("toml")
+	assert.NoError(v.ReadConfig(strings.NewReader(config)))
+	assert.NoError(v.UnmarshalExact(c, opts))
+	assert.NoError(setDefaultConfigValuesWithViper(v, c))
+
+	assert.Len(c.PeerGroups, 1)
+	pgDamp := c.PeerGroups[0].Dampening.Config
+	assert.True(pgDamp.Enabled)
+	assert.Equal(uint16(1), pgDamp.HalfLife)
+	assert.Equal(uint32(2), pgDamp.ReuseThreshold)
+	assert.Equal(uint32(3), pgDamp.SuppressThreshold)
+	assert.Equal(uint16(4), pgDamp.MaxSuppressTime)
+
+	assert.Len(c.Neighbors, 2)
+	assert.Equal(pgDamp, c.Neighbors[0].Dampening.Config)
+
+	defaultDamp := c.Neighbors[1].Dampening.Config
+	assert.True(defaultDamp.Enabled)
+	assert.Equal(uint16(DEFAULT_DAMPENING_HALF_LIFE), defaultDamp.HalfLife)
+	assert.Equal(uint32(DEFAULT_DAMPENING_REUSE_THRESHOLD), defaultDamp.ReuseThreshold)
+	assert.Equal(uint32(DEFAULT_DAMPENING_SUPPRESS_THRESHOLD), defaultDamp.SuppressThreshold)
+	assert.Equal(uint16(DEFAULT_DAMPENING_HALF_LIFE*DEFAULT_DAMPENING_MAX_SUPPRESS_MULT), defaultDamp.MaxSuppressTime)
+}

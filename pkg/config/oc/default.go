@@ -20,6 +20,11 @@ const (
 	DEFAULT_HOLDTIME                  = 90
 	DEFAULT_IDLE_HOLDTIME_AFTER_RESET = 30
 	DEFAULT_CONNECT_RETRY             = 120
+
+	DEFAULT_DAMPENING_HALF_LIFE          = 15
+	DEFAULT_DAMPENING_REUSE_THRESHOLD    = 750
+	DEFAULT_DAMPENING_SUPPRESS_THRESHOLD = 2000
+	DEFAULT_DAMPENING_MAX_SUPPRESS_MULT  = 4
 )
 
 var forcedOverwrittenConfig = []string{
@@ -47,6 +52,73 @@ func defaultAfiSafi(typ AfiSafiType, enable bool) AfiSafi {
 			Family:      bgp.AddressFamilyValueMap[string(typ)],
 		},
 	}
+}
+
+func normalizeDampeningConfig(d *Dampening, enabled bool) error {
+	if d == nil {
+		return nil
+	}
+	paramsSet := d.Config.HalfLife != 0 || d.Config.ReuseThreshold != 0 ||
+		d.Config.SuppressThreshold != 0 || d.Config.MaxSuppressTime != 0
+	if enabled || paramsSet {
+		d.Config.Enabled = true
+	}
+	if !d.Config.Enabled {
+		d.State = DampeningState{}
+		return nil
+	}
+
+	if d.Config.HalfLife == 0 {
+		d.Config.HalfLife = DEFAULT_DAMPENING_HALF_LIFE
+	}
+	if d.Config.HalfLife > 45 {
+		return fmt.Errorf("dampening half-life must be in range 1-45")
+	}
+	if d.Config.ReuseThreshold == 0 {
+		d.Config.ReuseThreshold = DEFAULT_DAMPENING_REUSE_THRESHOLD
+	}
+	if d.Config.ReuseThreshold > 20000 {
+		return fmt.Errorf("dampening reuse-threshold must be in range 1-20000")
+	}
+	if d.Config.SuppressThreshold == 0 {
+		d.Config.SuppressThreshold = DEFAULT_DAMPENING_SUPPRESS_THRESHOLD
+	}
+	if d.Config.SuppressThreshold > 20000 {
+		return fmt.Errorf("dampening suppress-threshold must be in range 1-20000")
+	}
+	if d.Config.SuppressThreshold < d.Config.ReuseThreshold {
+		return fmt.Errorf("dampening suppress-threshold must be greater than or equal to reuse-threshold")
+	}
+	if d.Config.MaxSuppressTime == 0 {
+		d.Config.MaxSuppressTime = d.Config.HalfLife * DEFAULT_DAMPENING_MAX_SUPPRESS_MULT
+	}
+	if d.Config.MaxSuppressTime > 255 {
+		return fmt.Errorf("dampening max-suppress-time must be in range 1-255")
+	}
+
+	d.State.Enabled = d.Config.Enabled
+	d.State.HalfLife = d.Config.HalfLife
+	d.State.ReuseThreshold = d.Config.ReuseThreshold
+	d.State.SuppressThreshold = d.Config.SuppressThreshold
+	d.State.MaxSuppressTime = d.Config.MaxSuppressTime
+	return nil
+}
+
+func normalizePeerGroupDampeningConfig(pg *PeerGroup) error {
+	if pg == nil {
+		return nil
+	}
+	if err := normalizeDampeningConfig(&pg.Dampening, pg.Config.RouteFlapDamping); err != nil {
+		return err
+	}
+	pg.Config.RouteFlapDamping = pg.Dampening.Config.Enabled
+	pg.State.RouteFlapDamping = pg.Dampening.Config.Enabled
+	for i := range pg.AfiSafis {
+		if err := normalizeDampeningConfig(&pg.AfiSafis[i].Dampening, false); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func SetDefaultNeighborConfigValues(n *Neighbor, pg *PeerGroup, g *Global) error {
@@ -95,6 +167,11 @@ func setDefaultNeighborConfigValuesWithViper(v *viper.Viper, n *Neighbor, g *Glo
 			return fmt.Errorf("can't set replace-peer-as for iBGP peer")
 		}
 	}
+	if err := normalizeDampeningConfig(&n.Dampening, n.Config.RouteFlapDamping); err != nil {
+		return err
+	}
+	n.Config.RouteFlapDamping = n.Dampening.Config.Enabled
+	n.State.RouteFlapDamping = n.Dampening.Config.Enabled
 
 	if !n.State.NeighborAddress.IsValid() {
 		n.State.NeighborAddress = n.Config.NeighborAddress
@@ -191,6 +268,9 @@ func setDefaultNeighborConfigValuesWithViper(v *viper.Viper, n *Neighbor, g *Glo
 			if !vv.IsSet("afi-safi.config.enabled") {
 				n.AfiSafis[i].Config.Enabled = true
 			}
+			if err := normalizeDampeningConfig(&n.AfiSafis[i].Dampening, false); err != nil {
+				return err
+			}
 			n.AfiSafis[i].MpGracefulRestart.State.Enabled = n.AfiSafis[i].MpGracefulRestart.Config.Enabled
 			if !vv.IsSet("afi-safi.add-paths.config.receive") {
 				if n.AddPaths.Config.Receive {
@@ -281,7 +361,7 @@ func SetPeerGroupStateValues(pg *PeerGroup, g *Global) error {
 		pg.RouteReflector.State.RouteReflectorClusterId = clusterId
 	}
 
-	return nil
+	return normalizePeerGroupDampeningConfig(pg)
 }
 
 func getLocalAsForPeer(g *Global, peerAs uint32) uint32 {
@@ -313,6 +393,14 @@ func SetDefaultGlobalConfigValues(g *Global) error {
 		g.AfiSafis = []AfiSafi{}
 		for k := range AfiSafiTypeToIntMap {
 			g.AfiSafis = append(g.AfiSafis, defaultAfiSafi(k, true))
+		}
+	}
+	if err := normalizeDampeningConfig(&g.Dampening, false); err != nil {
+		return err
+	}
+	for i := range g.AfiSafis {
+		if err := normalizeDampeningConfig(&g.AfiSafis[i].Dampening, false); err != nil {
+			return err
 		}
 	}
 
@@ -464,6 +552,13 @@ func setDefaultConfigValuesWithViper(v *viper.Viper, b *BgpConfigSet) error {
 		b.Zebra.Config.NexthopTriggerDelay = 5
 	}
 
+	for idx, pg := range b.PeerGroups {
+		if err := normalizePeerGroupDampeningConfig(&pg); err != nil {
+			return err
+		}
+		b.PeerGroups[idx] = pg
+	}
+
 	list, err := extractArray(v.Get("neighbors"))
 	if err != nil {
 		return err
@@ -545,6 +640,9 @@ func OverwriteNeighborConfigWithPeerGroup(c *Neighbor, pg *PeerGroup) error {
 	overwriteConfig(&c.AsPathOptions.Config, &pg.AsPathOptions.Config, "neighbor.as-path-options.config", v)
 	overwriteConfig(&c.AddPaths.Config, &pg.AddPaths.Config, "neighbor.add-paths.config", v)
 	overwriteConfig(&c.GracefulRestart.Config, &pg.GracefulRestart.Config, "neighbor.gradeful-restart.config", v)
+	if !isNeighborDampeningConfigSet(v) {
+		c.Dampening.Config = pg.Dampening.Config
+	}
 	overwriteConfig(&c.ApplyPolicy.Config, &pg.ApplyPolicy.Config, "neighbor.apply-policy.config", v)
 	overwriteConfig(&c.UseMultiplePaths.Config, &pg.UseMultiplePaths.Config, "neighbor.use-multiple-paths.config", v)
 	overwriteConfig(&c.RouteServer.Config, &pg.RouteServer.Config, "neighbor.route-server.config", v)
@@ -556,6 +654,25 @@ func OverwriteNeighborConfigWithPeerGroup(c *Neighbor, pg *PeerGroup) error {
 	}
 
 	return nil
+}
+
+func isNeighborDampeningConfigSet(v *viper.Viper) bool {
+	if v == nil {
+		return false
+	}
+	for _, key := range []string{
+		"neighbor.config.route-flap-damping",
+		"neighbor.dampening.config.enabled",
+		"neighbor.dampening.config.half-life",
+		"neighbor.dampening.config.reuse-threshold",
+		"neighbor.dampening.config.suppress-threshold",
+		"neighbor.dampening.config.max-suppress-time",
+	} {
+		if v.IsSet(key) {
+			return true
+		}
+	}
+	return false
 }
 
 func overwriteConfig(c, pg any, tagPrefix string, v *viper.Viper) {
