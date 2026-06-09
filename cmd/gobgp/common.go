@@ -77,6 +77,7 @@ const (
 	cmdAction         = "action"
 	cmdUpdate         = "update"
 	cmdBMP            = "bmp"
+	cmdDampening      = "dampening"
 	cmdLargecommunity = "large-community"
 	cmdSummary        = "summary"
 	cmdLogLevel       = "log-level"

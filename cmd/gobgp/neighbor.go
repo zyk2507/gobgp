@@ -1510,6 +1510,24 @@ func newNeighborCmd() *cobra.Command {
 		}
 	}
 
+	dampeningCmd := &cobra.Command{
+		Use: cmdDampening,
+		Run: func(cmd *cobra.Command, args []string) {
+			if len(args) == 0 {
+				exitWithError(fmt.Errorf("neighbor address is required"))
+			}
+			l, err := getNeighbors(args[len(args)-1], false)
+			if err != nil {
+				exitWithError(err)
+			}
+			remoteIP := l[0].State.NeighborAddress
+			if err := showDampening(remoteIP); err != nil {
+				exitWithError(err)
+			}
+		},
+	}
+	neighborCmdImpl.AddCommand(dampeningCmd)
+
 	policyCmd := &cobra.Command{
 		Use: cmdPolicy,
 		Run: func(cmd *cobra.Command, args []string) {

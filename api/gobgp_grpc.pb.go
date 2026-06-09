@@ -62,6 +62,7 @@ const (
 	GoBgpService_AddPath_FullMethodName                = "/api.GoBgpService/AddPath"
 	GoBgpService_DeletePath_FullMethodName             = "/api.GoBgpService/DeletePath"
 	GoBgpService_ListPath_FullMethodName               = "/api.GoBgpService/ListPath"
+	GoBgpService_ListDampening_FullMethodName          = "/api.GoBgpService/ListDampening"
 	GoBgpService_AddPathStream_FullMethodName          = "/api.GoBgpService/AddPathStream"
 	GoBgpService_GetTable_FullMethodName               = "/api.GoBgpService/GetTable"
 	GoBgpService_AddVrf_FullMethodName                 = "/api.GoBgpService/AddVrf"
@@ -125,6 +126,7 @@ type GoBgpServiceClient interface {
 	AddPath(ctx context.Context, in *AddPathRequest, opts ...grpc.CallOption) (*AddPathResponse, error)
 	DeletePath(ctx context.Context, in *DeletePathRequest, opts ...grpc.CallOption) (*DeletePathResponse, error)
 	ListPath(ctx context.Context, in *ListPathRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ListPathResponse], error)
+	ListDampening(ctx context.Context, in *ListDampeningRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ListDampeningResponse], error)
 	AddPathStream(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[AddPathStreamRequest, AddPathStreamResponse], error)
 	GetTable(ctx context.Context, in *GetTableRequest, opts ...grpc.CallOption) (*GetTableResponse, error)
 	AddVrf(ctx context.Context, in *AddVrfRequest, opts ...grpc.CallOption) (*AddVrfResponse, error)
@@ -433,9 +435,28 @@ func (c *goBgpServiceClient) ListPath(ctx context.Context, in *ListPathRequest, 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type GoBgpService_ListPathClient = grpc.ServerStreamingClient[ListPathResponse]
 
+func (c *goBgpServiceClient) ListDampening(ctx context.Context, in *ListDampeningRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ListDampeningResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &GoBgpService_ServiceDesc.Streams[5], GoBgpService_ListDampening_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[ListDampeningRequest, ListDampeningResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type GoBgpService_ListDampeningClient = grpc.ServerStreamingClient[ListDampeningResponse]
+
 func (c *goBgpServiceClient) AddPathStream(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[AddPathStreamRequest, AddPathStreamResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &GoBgpService_ServiceDesc.Streams[5], GoBgpService_AddPathStream_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &GoBgpService_ServiceDesc.Streams[6], GoBgpService_AddPathStream_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -478,7 +499,7 @@ func (c *goBgpServiceClient) DeleteVrf(ctx context.Context, in *DeleteVrfRequest
 
 func (c *goBgpServiceClient) ListVrf(ctx context.Context, in *ListVrfRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ListVrfResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &GoBgpService_ServiceDesc.Streams[6], GoBgpService_ListVrf_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &GoBgpService_ServiceDesc.Streams[7], GoBgpService_ListVrf_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -517,7 +538,7 @@ func (c *goBgpServiceClient) DeletePolicy(ctx context.Context, in *DeletePolicyR
 
 func (c *goBgpServiceClient) ListPolicy(ctx context.Context, in *ListPolicyRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ListPolicyResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &GoBgpService_ServiceDesc.Streams[7], GoBgpService_ListPolicy_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &GoBgpService_ServiceDesc.Streams[8], GoBgpService_ListPolicy_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -566,7 +587,7 @@ func (c *goBgpServiceClient) DeleteDefinedSet(ctx context.Context, in *DeleteDef
 
 func (c *goBgpServiceClient) ListDefinedSet(ctx context.Context, in *ListDefinedSetRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ListDefinedSetResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &GoBgpService_ServiceDesc.Streams[8], GoBgpService_ListDefinedSet_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &GoBgpService_ServiceDesc.Streams[9], GoBgpService_ListDefinedSet_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -605,7 +626,7 @@ func (c *goBgpServiceClient) DeleteStatement(ctx context.Context, in *DeleteStat
 
 func (c *goBgpServiceClient) ListStatement(ctx context.Context, in *ListStatementRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ListStatementResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &GoBgpService_ServiceDesc.Streams[9], GoBgpService_ListStatement_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &GoBgpService_ServiceDesc.Streams[10], GoBgpService_ListStatement_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -644,7 +665,7 @@ func (c *goBgpServiceClient) DeletePolicyAssignment(ctx context.Context, in *Del
 
 func (c *goBgpServiceClient) ListPolicyAssignment(ctx context.Context, in *ListPolicyAssignmentRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ListPolicyAssignmentResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &GoBgpService_ServiceDesc.Streams[10], GoBgpService_ListPolicyAssignment_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &GoBgpService_ServiceDesc.Streams[11], GoBgpService_ListPolicyAssignment_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -693,7 +714,7 @@ func (c *goBgpServiceClient) DeleteRpki(ctx context.Context, in *DeleteRpkiReque
 
 func (c *goBgpServiceClient) ListRpki(ctx context.Context, in *ListRpkiRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ListRpkiResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &GoBgpService_ServiceDesc.Streams[11], GoBgpService_ListRpki_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &GoBgpService_ServiceDesc.Streams[12], GoBgpService_ListRpki_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -742,7 +763,7 @@ func (c *goBgpServiceClient) ResetRpki(ctx context.Context, in *ResetRpkiRequest
 
 func (c *goBgpServiceClient) ListRpkiTable(ctx context.Context, in *ListRpkiTableRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ListRpkiTableResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &GoBgpService_ServiceDesc.Streams[12], GoBgpService_ListRpkiTable_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &GoBgpService_ServiceDesc.Streams[13], GoBgpService_ListRpkiTable_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -811,7 +832,7 @@ func (c *goBgpServiceClient) DeleteBmp(ctx context.Context, in *DeleteBmpRequest
 
 func (c *goBgpServiceClient) ListBmp(ctx context.Context, in *ListBmpRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ListBmpResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &GoBgpService_ServiceDesc.Streams[13], GoBgpService_ListBmp_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &GoBgpService_ServiceDesc.Streams[14], GoBgpService_ListBmp_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -866,6 +887,7 @@ type GoBgpServiceServer interface {
 	AddPath(context.Context, *AddPathRequest) (*AddPathResponse, error)
 	DeletePath(context.Context, *DeletePathRequest) (*DeletePathResponse, error)
 	ListPath(*ListPathRequest, grpc.ServerStreamingServer[ListPathResponse]) error
+	ListDampening(*ListDampeningRequest, grpc.ServerStreamingServer[ListDampeningResponse]) error
 	AddPathStream(grpc.ClientStreamingServer[AddPathStreamRequest, AddPathStreamResponse]) error
 	GetTable(context.Context, *GetTableRequest) (*GetTableResponse, error)
 	AddVrf(context.Context, *AddVrfRequest) (*AddVrfResponse, error)
@@ -974,6 +996,9 @@ func (UnimplementedGoBgpServiceServer) DeletePath(context.Context, *DeletePathRe
 }
 func (UnimplementedGoBgpServiceServer) ListPath(*ListPathRequest, grpc.ServerStreamingServer[ListPathResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method ListPath not implemented")
+}
+func (UnimplementedGoBgpServiceServer) ListDampening(*ListDampeningRequest, grpc.ServerStreamingServer[ListDampeningResponse]) error {
+	return status.Errorf(codes.Unimplemented, "method ListDampening not implemented")
 }
 func (UnimplementedGoBgpServiceServer) AddPathStream(grpc.ClientStreamingServer[AddPathStreamRequest, AddPathStreamResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method AddPathStream not implemented")
@@ -1455,6 +1480,17 @@ func _GoBgpService_ListPath_Handler(srv interface{}, stream grpc.ServerStream) e
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type GoBgpService_ListPathServer = grpc.ServerStreamingServer[ListPathResponse]
+
+func _GoBgpService_ListDampening_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(ListDampeningRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(GoBgpServiceServer).ListDampening(m, &grpc.GenericServerStream[ListDampeningRequest, ListDampeningResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type GoBgpService_ListDampeningServer = grpc.ServerStreamingServer[ListDampeningResponse]
 
 func _GoBgpService_AddPathStream_Handler(srv interface{}, stream grpc.ServerStream) error {
 	return srv.(GoBgpServiceServer).AddPathStream(&grpc.GenericServerStream[AddPathStreamRequest, AddPathStreamResponse]{ServerStream: stream})
@@ -2179,6 +2215,11 @@ var GoBgpService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "ListPath",
 			Handler:       _GoBgpService_ListPath_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "ListDampening",
+			Handler:       _GoBgpService_ListDampening_Handler,
 			ServerStreams: true,
 		},
 		{

@@ -360,6 +360,64 @@ func (s *server) ListPath(r *api.ListPathRequest, stream api.GoBgpService_ListPa
 	return send()
 }
 
+func timestampOrNil(t time.Time) *tspb.Timestamp {
+	if t.IsZero() {
+		return nil
+	}
+	return tspb.New(t)
+}
+
+func toDampeningInfoAPI(d dampeningSnapshot) *api.DampeningInfo {
+	return &api.DampeningInfo{
+		Prefix:         d.prefix,
+		Family:         &api.Family{Afi: api.Family_Afi(d.family.Afi()), Safi: api.Family_Safi(d.family.Safi())},
+		Neighbor:       d.neighbor,
+		PathId:         d.pathID,
+		Penalty:        uint32(d.penalty),
+		FlapCount:      uint32(d.flap),
+		Suppressed:     d.suppressed,
+		LastRecord:     d.lastRecord.String(),
+		StartTime:      timestampOrNil(d.startTime),
+		UpdatedTime:    timestampOrNil(d.updatedTime),
+		SuppressTime:   timestampOrNil(d.suppressTime),
+		ReuseTime:      uint64(d.reuseTime / time.Second),
+		HasPendingPath: d.hasPendingPath,
+		Config: &api.DampeningConfig{
+			Enabled:           d.config.Enabled,
+			HalfLife:          uint32(d.config.HalfLife),
+			ReuseThreshold:    d.config.ReuseThreshold,
+			SuppressThreshold: d.config.SuppressThreshold,
+			MaxSuppressTime:   uint32(d.config.MaxSuppressTime),
+		},
+	}
+}
+
+func (s *server) ListDampening(r *api.ListDampeningRequest, stream api.GoBgpService_ListDampeningServer) error {
+	ctx, cancel := context.WithCancel(stream.Context())
+	defer cancel()
+
+	family := bgp.Family(0)
+	if r.Family != nil {
+		family = bgp.NewFamily(uint16(r.Family.Afi), uint8(r.Family.Safi))
+	}
+	var sendErr error
+	err := s.bgpServer.ListDampening(r.GetNeighbor(), family, func(d dampeningSnapshot) {
+		if ctx.Err() != nil {
+			return
+		}
+		if sendErr = stream.Send(&api.ListDampeningResponse{Info: toDampeningInfoAPI(d)}); sendErr != nil {
+			cancel()
+		}
+	})
+	if sendErr != nil {
+		return sendErr
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return err
+}
+
 func (s *server) watchEvent(ctx context.Context, r *api.WatchEventRequest, fn func(*api.WatchEventResponse, time.Time)) error {
 	opts := make([]WatchOption, 0)
 	if r.GetPeer() != nil {

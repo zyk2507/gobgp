@@ -3571,6 +3571,16 @@ func newGlobalCmd() *cobra.Command {
 	}
 	delCmd.AddCommand(allCmd)
 
-	globalCmd.AddCommand(ribCmd, policyCmd, delCmd)
+	dampeningCmd := &cobra.Command{
+		Use: cmdDampening,
+		Run: func(cmd *cobra.Command, args []string) {
+			if err := showDampening(""); err != nil {
+				exitWithError(err)
+			}
+		},
+	}
+	dampeningCmd.PersistentFlags().StringVarP(&subOpts.AddressFamily, "address-family", "a", "", "address family")
+
+	globalCmd.AddCommand(ribCmd, policyCmd, delCmd, dampeningCmd)
 	return globalCmd
 }

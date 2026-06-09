@@ -61,6 +61,7 @@ service GoBgpService {
   rpc AddPath(AddPathRequest) returns (AddPathResponse);
   rpc DeletePath(DeletePathRequest) returns (DeletePathResponse);
   rpc ListPath(ListPathRequest) returns (stream ListPathResponse);
+  rpc ListDampening(ListDampeningRequest) returns (stream ListDampeningResponse);
   rpc AddPathStream(stream AddPathStreamRequest) returns (AddPathStreamResponse);
 
   rpc GetTable(GetTableRequest) returns (GetTableResponse);
@@ -351,6 +352,40 @@ message ListPathRequest {
 
 message ListPathResponse {
   Destination destination = 1;
+}
+
+message ListDampeningRequest {
+  string neighbor = 1;
+  Family family = 2;
+}
+
+message DampeningConfig {
+  bool enabled = 1;
+  uint32 half_life = 2;
+  uint32 reuse_threshold = 3;
+  uint32 suppress_threshold = 4;
+  uint32 max_suppress_time = 5;
+}
+
+message DampeningInfo {
+  string prefix = 1;
+  Family family = 2;
+  string neighbor = 3;
+  uint32 path_id = 4;
+  uint32 penalty = 5;
+  uint32 flap_count = 6;
+  bool suppressed = 7;
+  string last_record = 8;
+  google.protobuf.Timestamp start_time = 9;
+  google.protobuf.Timestamp updated_time = 10;
+  google.protobuf.Timestamp suppress_time = 11;
+  uint64 reuse_time = 12;
+  bool has_pending_path = 13;
+  DampeningConfig config = 14;
+}
+
+message ListDampeningResponse {
+  DampeningInfo info = 1;
 }
 
 message AddPathStreamRequest {

@@ -81,8 +81,22 @@ func TestDampeningManagerSuppressesAndReusesWithdrawFlaps(t *testing.T) {
 	update2 := newDampeningTestPath(t, "203.0.113.0/24", 200, false)
 	require.Empty(t, m.apply(update2, conf))
 
+	key := dampeningPathKey(update2)
+	m.mu.Lock()
+	require.NotNil(t, m.infos[key])
+	require.NotEqual(t, m.reuseOffset, m.infos[key].reuseIndex)
+	m.mu.Unlock()
+
 	now = now.Add(2 * time.Minute)
 	reused := m.tick()
+	require.Empty(t, reused)
+
+	for range dampeningReuseListSize {
+		reused = m.tick()
+		if len(reused) != 0 {
+			break
+		}
+	}
 	require.Len(t, reused, 1)
 	require.Equal(t, update2, reused[0])
 	require.False(t, reused[0].IsWithdraw)
@@ -110,8 +124,51 @@ func TestDampeningManagerSuppressesAttributeChanges(t *testing.T) {
 
 	require.Empty(t, m.apply(changed, conf))
 
-	now = now.Add(70 * time.Second)
-	reused := m.tick()
+	var reused []*table.Path
+	for range 10 {
+		now = now.Add(dampeningDeltaReuse)
+		reused = m.tick()
+		if len(reused) != 0 {
+			break
+		}
+	}
 	require.Len(t, reused, 1)
 	require.Equal(t, changed, reused[0])
+}
+
+func TestDampeningManagerSnapshots(t *testing.T) {
+	now := time.Unix(300, 0)
+	m := newDampeningManager()
+	m.now = func() time.Time { return now }
+	conf := oc.DampeningConfig{
+		Enabled:           true,
+		HalfLife:          1,
+		ReuseThreshold:    1,
+		SuppressThreshold: 1,
+		MaxSuppressTime:   1,
+	}
+
+	path := newDampeningTestPath(t, "192.0.2.0/24", 100, false)
+	require.Equal(t, []*table.Path{path}, m.apply(path, conf))
+
+	changed := newDampeningTestPath(t, "192.0.2.0/24", 200, false)
+	out := m.apply(changed, conf)
+	require.Len(t, out, 1)
+	require.True(t, out[0].IsWithdraw)
+	require.Empty(t, m.apply(changed, conf))
+
+	snapshots := m.snapshots(netip.Addr{}, bgp.Family(0))
+	require.Len(t, snapshots, 1)
+	require.Equal(t, "192.0.2.1", snapshots[0].neighbor)
+	require.Equal(t, bgp.RF_IPv4_UC, snapshots[0].family)
+	require.Equal(t, "192.0.2.0/24", snapshots[0].prefix)
+	require.Equal(t, 1, snapshots[0].flap)
+	require.True(t, snapshots[0].suppressed)
+	require.Equal(t, dampeningRecordUpdate, snapshots[0].lastRecord)
+	require.True(t, snapshots[0].hasPendingPath)
+	require.Greater(t, snapshots[0].reuseTime, time.Duration(0))
+	require.Equal(t, normalizeDampeningConfigValue(conf), snapshots[0].config)
+
+	snapshots = m.snapshots(netip.MustParseAddr("192.0.2.2"), bgp.Family(0))
+	require.Empty(t, snapshots)
 }
