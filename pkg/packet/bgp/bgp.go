@@ -12659,6 +12659,36 @@ type PathAttributeMpReachNLRI struct {
 	Value            []PathNLRI
 }
 
+func (p *PathAttributeMpReachNLRI) EffectiveNexthop() netip.Addr {
+	if p == nil {
+		return netip.Addr{}
+	}
+	if (!p.Nexthop.IsValid() || p.Nexthop.IsUnspecified()) &&
+		p.LinkLocalNexthop.IsValid() &&
+		p.LinkLocalNexthop.Is6() &&
+		p.LinkLocalNexthop.IsLinkLocalUnicast() {
+		return p.LinkLocalNexthop
+	}
+	return p.Nexthop
+}
+
+func (p *PathAttributeMpReachNLRI) Nexthops() []netip.Addr {
+	if p == nil {
+		return nil
+	}
+	nexthops := make([]netip.Addr, 0, 2)
+	if p.Nexthop.IsValid() {
+		nexthops = append(nexthops, p.Nexthop)
+	}
+	if p.LinkLocalNexthop.IsValid() &&
+		p.LinkLocalNexthop.Is6() &&
+		p.LinkLocalNexthop.IsLinkLocalUnicast() &&
+		p.LinkLocalNexthop != p.Nexthop {
+		nexthops = append(nexthops, p.LinkLocalNexthop)
+	}
+	return nexthops
+}
+
 func (p *PathAttributeMpReachNLRI) DecodeFromBytes(data []byte, options ...*MarshallingOption) error {
 	value, err := p.PathAttribute.DecodeFromBytes(data, options...)
 	if err != nil {
@@ -12839,22 +12869,37 @@ func (p *PathAttributeMpReachNLRI) MarshalJSON() ([]byte, error) {
 			nexthop = "fictitious"
 		}
 	}
+	linkLocalNexthop := ""
+	if p.LinkLocalNexthop.IsValid() {
+		linkLocalNexthop = p.LinkLocalNexthop.String()
+	}
+	effectiveNexthop := ""
+	if effective := p.EffectiveNexthop(); effective.IsValid() && effective != p.Nexthop {
+		effectiveNexthop = effective.String()
+	}
 	return json.Marshal(struct {
-		Type    BGPAttrType `json:"type"`
-		Nexthop string      `json:"nexthop"`
-		AFI     uint16      `json:"afi"`
-		SAFI    uint8       `json:"safi"`
-		Value   []PathNLRI  `json:"value"`
+		Type             BGPAttrType `json:"type"`
+		Nexthop          string      `json:"nexthop"`
+		LinkLocalNexthop string      `json:"link_local_nexthop,omitempty"`
+		EffectiveNexthop string      `json:"effective_nexthop,omitempty"`
+		AFI              uint16      `json:"afi"`
+		SAFI             uint8       `json:"safi"`
+		Value            []PathNLRI  `json:"value"`
 	}{
-		Type:    p.GetType(),
-		Nexthop: nexthop,
-		AFI:     p.AFI,
-		SAFI:    p.SAFI,
-		Value:   p.Value,
+		Type:             p.GetType(),
+		Nexthop:          nexthop,
+		LinkLocalNexthop: linkLocalNexthop,
+		EffectiveNexthop: effectiveNexthop,
+		AFI:              p.AFI,
+		SAFI:             p.SAFI,
+		Value:            p.Value,
 	})
 }
 
 func (p *PathAttributeMpReachNLRI) String() string {
+	if p.LinkLocalNexthop.IsValid() {
+		return fmt.Sprintf("{MpReach(%s): {Nexthop: %s, LinkLocalNexthop: %s, NLRIs: %s}}", NewFamily(p.AFI, p.SAFI), p.Nexthop, p.LinkLocalNexthop, p.Value)
+	}
 	return fmt.Sprintf("{MpReach(%s): {Nexthop: %s, NLRIs: %s}}", NewFamily(p.AFI, p.SAFI), p.Nexthop, p.Value)
 }
 

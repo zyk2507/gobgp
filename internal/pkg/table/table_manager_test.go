@@ -1505,7 +1505,8 @@ func TestProcessBGPUpdate_select_linklocal_nexthop_over_unspecified_global(t *te
 
 	attr := path.getPathAttr(bgp.BGP_ATTR_TYPE_MP_REACH_NLRI)
 	pathNexthop := attr.(*bgp.PathAttributeMpReachNLRI)
-	assert.Equal(t, expectedNexthop, pathNexthop.Nexthop)
+	assert.Equal(t, netip.MustParseAddr("::"), pathNexthop.Nexthop)
+	assert.Equal(t, expectedNexthop, pathNexthop.LinkLocalNexthop)
 }
 
 func TestProcessBGPUpdate_keeps_global_nexthop_over_linklocal(t *testing.T) {
@@ -1533,6 +1534,11 @@ func TestProcessBGPUpdate_keeps_global_nexthop_over_linklocal(t *testing.T) {
 
 	expectedNexthop := netip.MustParseAddr("2001:db8::1")
 	assert.Equal(t, expectedNexthop, pList[0].GetNexthop())
+
+	attr := pList[0].getPathAttr(bgp.BGP_ATTR_TYPE_MP_REACH_NLRI)
+	pathNexthop := attr.(*bgp.PathAttributeMpReachNLRI)
+	assert.Equal(t, expectedNexthop, pathNexthop.Nexthop)
+	assert.Equal(t, netip.MustParseAddr("fe80::ade0"), pathNexthop.LinkLocalNexthop)
 }
 
 // handle bestpath lost

@@ -115,6 +115,10 @@ type PeerInfo struct {
 	// PeerGroup contains name for peer group itself if this is PeerInfo for a peer group
 	// or the name of peer group this peer belongs to. Used for informational purposes.
 	PeerGroup string
+
+	// LinkLocalNexthopInterface scopes IPv6 link-local nexthops for consumers
+	// outside the BGP wire format, such as zebra route installation.
+	LinkLocalNexthopInterface string
 }
 
 func (lhs *PeerInfo) Equal(rhs *PeerInfo) bool {
@@ -150,21 +154,29 @@ func (i *PeerInfo) String() string {
 }
 
 func NewPeerInfo(g *oc.Global, p *oc.Neighbor, AS, localAS uint32, ID, localID netip.Addr, addr, localAddr netip.Addr) *PeerInfo {
+	linkLocalNexthopInterface := firstNonEmptyString(
+		p.Config.NeighborInterface,
+		addr.Zone(),
+		localAddr.Zone(),
+		p.Transport.Config.BindInterface,
+	)
+
 	return &PeerInfo{
-		PeerType:                p.State.PeerType,
-		ID:                      ID,
-		AS:                      AS,
-		Address:                 addr,
-		LocalAS:                 localAS,
-		LocalID:                 localID,
-		LocalAddress:            localAddr,
-		RouteReflectorClient:    p.RouteReflector.Config.RouteReflectorClient,
-		RouteReflectorClusterID: p.RouteReflector.State.RouteReflectorClusterId,
-		RouteServerClient:       p.RouteServer.Config.RouteServerClient,
-		MultihopTtl:             p.EbgpMultihop.Config.MultihopTtl,
-		Confederation:           g.IsConfederationMember(AS),
-		RemovePrivateAs:         p.State.RemovePrivateAs,
-		PeerGroup:               p.Config.PeerGroup,
+		PeerType:                  p.State.PeerType,
+		ID:                        ID,
+		AS:                        AS,
+		Address:                   addr,
+		LocalAS:                   localAS,
+		LocalID:                   localID,
+		LocalAddress:              localAddr,
+		RouteReflectorClient:      p.RouteReflector.Config.RouteReflectorClient,
+		RouteReflectorClusterID:   p.RouteReflector.State.RouteReflectorClusterId,
+		RouteServerClient:         p.RouteServer.Config.RouteServerClient,
+		MultihopTtl:               p.EbgpMultihop.Config.MultihopTtl,
+		Confederation:             g.IsConfederationMember(AS),
+		RemovePrivateAs:           p.State.RemovePrivateAs,
+		PeerGroup:                 p.Config.PeerGroup,
+		LinkLocalNexthopInterface: linkLocalNexthopInterface,
 	}
 }
 
@@ -175,19 +187,29 @@ func NewPeerGroupInfo(g *oc.Global, p *oc.PeerGroup) *PeerInfo {
 	}
 
 	return &PeerInfo{
-		PeerType:                p.State.PeerType,
-		AS:                      p.Config.PeerAs,
-		LocalAS:                 p.Config.LocalAs,
-		LocalID:                 g.Config.RouterId,
-		LocalAddress:            localAddr,
-		RouteReflectorClient:    p.RouteReflector.Config.RouteReflectorClient,
-		RouteReflectorClusterID: p.RouteReflector.State.RouteReflectorClusterId,
-		RouteServerClient:       p.RouteServer.Config.RouteServerClient,
-		MultihopTtl:             p.EbgpMultihop.Config.MultihopTtl,
-		Confederation:           g.IsConfederationMember(p.Config.PeerAs),
-		RemovePrivateAs:         p.State.RemovePrivateAs,
-		PeerGroup:               p.Config.PeerGroupName,
+		PeerType:                  p.State.PeerType,
+		AS:                        p.Config.PeerAs,
+		LocalAS:                   p.Config.LocalAs,
+		LocalID:                   g.Config.RouterId,
+		LocalAddress:              localAddr,
+		RouteReflectorClient:      p.RouteReflector.Config.RouteReflectorClient,
+		RouteReflectorClusterID:   p.RouteReflector.State.RouteReflectorClusterId,
+		RouteServerClient:         p.RouteServer.Config.RouteServerClient,
+		MultihopTtl:               p.EbgpMultihop.Config.MultihopTtl,
+		Confederation:             g.IsConfederationMember(p.Config.PeerAs),
+		RemovePrivateAs:           p.State.RemovePrivateAs,
+		PeerGroup:                 p.Config.PeerGroupName,
+		LinkLocalNexthopInterface: p.Transport.Config.BindInterface,
 	}
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // destination represents a BGP destination (prefix) and its associated paths.

@@ -484,7 +484,7 @@ func getNextHopFromPathAttributes(attrs []bgp.PathAttributeInterface) netip.Addr
 		case *bgp.PathAttributeNextHop:
 			return a.Value
 		case *bgp.PathAttributeMpReachNLRI:
-			return a.Nexthop
+			return a.EffectiveNexthop()
 		}
 	}
 	return netip.Addr{}

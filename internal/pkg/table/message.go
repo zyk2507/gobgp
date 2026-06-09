@@ -328,15 +328,13 @@ func newMPCage(b []byte, nhKey string, path *Path) *mpCage {
 func getMPReachNexthops(path *Path) ([]netip.Addr, string) {
 	for _, attr := range path.GetPathAttrs() {
 		if mp, ok := attr.(*bgp.PathAttributeMpReachNLRI); ok {
-			nexthops := make([]netip.Addr, 0, 2)
+			nexthops := mp.Nexthops()
 			key := ""
-			if mp.Nexthop.IsValid() {
-				nexthops = append(nexthops, mp.Nexthop)
-				key += mp.Nexthop.String()
-			}
-			if mp.LinkLocalNexthop.IsValid() {
-				nexthops = append(nexthops, mp.LinkLocalNexthop)
-				key += "|" + mp.LinkLocalNexthop.String()
+			for i, nexthop := range nexthops {
+				if i > 0 {
+					key += "|"
+				}
+				key += nexthop.String()
 			}
 			return nexthops, key
 		}

@@ -158,11 +158,16 @@ func injectMrt() error {
 								attrs = append(attrs, attr)
 							} else {
 								a := attr.(*bgp.PathAttributeMpReachNLRI)
-								nexthop := a.Nexthop
-								if mrtOpts.NextHop != nil {
-									nexthop = netip.MustParseAddr(mrtOpts.NextHop.String())
+								nexthops := a.Nexthops()
+								if len(nexthops) == 0 {
+									if nexthop := a.EffectiveNexthop(); nexthop.IsValid() {
+										nexthops = []netip.Addr{nexthop}
+									}
 								}
-								attr, _ := bgp.NewPathAttributeMpReachNLRI(rib.Family, []bgp.PathNLRI{{NLRI: nlri}}, nexthop)
+								if mrtOpts.NextHop != nil {
+									nexthops = []netip.Addr{netip.MustParseAddr(mrtOpts.NextHop.String())}
+								}
+								attr, _ := bgp.NewPathAttributeMpReachNLRI(rib.Family, []bgp.PathNLRI{{NLRI: nlri}}, nexthops...)
 								attrs = append(attrs, attr)
 							}
 						}

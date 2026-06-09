@@ -524,6 +524,7 @@ func api2Path(resource api.TableType, path *api.Path, isWithdraw bool) (*table.P
 	var pi *table.PeerInfo
 	var nlri bgp.NLRI
 	var nexthop netip.Addr
+	var nexthops []netip.Addr
 
 	if path.SourceAsn != 0 {
 		id, err := netip.ParseAddr(path.SourceId)
@@ -568,7 +569,8 @@ func api2Path(resource api.TableType, path *api.Path, isWithdraw bool) (*table.P
 			if len(a.Value) == 0 {
 				return nil, fmt.Errorf("invalid mp reach attribute")
 			}
-			nexthop = a.Nexthop
+			nexthop = a.EffectiveNexthop()
+			nexthops = a.Nexthops()
 		default:
 			pattrs = append(pattrs, attr)
 		}
@@ -582,7 +584,7 @@ func api2Path(resource api.TableType, path *api.Path, isWithdraw bool) (*table.P
 		pa, _ := bgp.NewPathAttributeNextHop(nexthop)
 		pattrs = append(pattrs, pa)
 	} else {
-		attr, _ := bgp.NewPathAttributeMpReachNLRI(rf, []bgp.PathNLRI{{NLRI: nlri}}, nexthop)
+		attr, _ := bgp.NewPathAttributeMpReachNLRI(rf, []bgp.PathNLRI{{NLRI: nlri}}, nexthopsForMPReachAttr(nexthop, nexthops)...)
 		pattrs = append(pattrs, attr)
 	}
 

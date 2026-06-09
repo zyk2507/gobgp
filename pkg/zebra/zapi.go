@@ -909,6 +909,10 @@ func (t APIType) ToCommon(version uint8, software Software) APIType {
 	return zebraError // fail to convert and error value
 }
 
+func (t APIType) IsInterfaceDelete(version uint8, software Software) bool {
+	return t.ToCommon(version, software) == interfaceDelete
+}
+
 func (t APIType) addressFamily(version uint8) uint8 {
 	if version == 4 {
 		switch t {
@@ -2140,6 +2144,22 @@ type interfaceUpdateBody struct {
 	linktype     linkType
 	hardwareAddr net.HardwareAddr
 	linkParam    linkParam
+}
+
+// InterfaceUpdate exposes zebra's interface name to ifindex mapping without
+// exposing the wire-format body type itself.
+type InterfaceUpdate interface {
+	Body
+	InterfaceName() string
+	InterfaceIndex() uint32
+}
+
+func (b *interfaceUpdateBody) InterfaceName() string {
+	return b.name
+}
+
+func (b *interfaceUpdateBody) InterfaceIndex() uint32 {
+	return b.index
 }
 
 // Ref: zebra_interface_if_set_value in lib/zclient.c of Quagga1.2&FRR3&FRR4&FRR5&FRR6&FRR7.x&FRR8 (ZAPI3&4&5&6)

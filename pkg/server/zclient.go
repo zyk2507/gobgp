@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"net"
 	"net/netip"
 	"strconv"
 	"strings"
@@ -37,6 +38,90 @@ import (
 // the metric value of math.MaxUint32 means the nexthop is unreachable.
 type nexthopStateCache map[netip.Addr]uint32
 
+func isIPv6LinkLocalNexthop(nexthop netip.Addr) bool {
+	return nexthop.Is6() && nexthop.IsLinkLocalUnicast()
+}
+
+func isNexthopCacheableForNHT(nexthop netip.Addr) bool {
+	return nexthop.IsValid() && !nexthop.IsUnspecified() && !isIPv6LinkLocalNexthop(nexthop)
+}
+
+func linkLocalNexthopInterface(path *table.Path) string {
+	if path == nil {
+		return ""
+	}
+	nexthop := path.GetNexthop()
+	if !nexthop.Is6() || !nexthop.IsLinkLocalUnicast() {
+		return ""
+	}
+	if zone := nexthop.Zone(); zone != "" {
+		return zone
+	}
+	source := path.GetSource()
+	if source == nil {
+		return ""
+	}
+	for _, iface := range []string{
+		source.LinkLocalNexthopInterface,
+		source.Address.Zone(),
+		source.LocalAddress.Zone(),
+	} {
+		if iface != "" {
+			return iface
+		}
+	}
+	return ""
+}
+
+func linkLocalNexthopIfindex(path *table.Path, z *zebraClient) uint32 {
+	iface := linkLocalNexthopInterface(path)
+	if iface == "" {
+		return 0
+	}
+	if z != nil {
+		if index := z.interfaceIndexByName(iface); index != 0 {
+			return index
+		}
+	}
+	if netIface, err := net.InterfaceByName(iface); err == nil {
+		return uint32(netIface.Index)
+	}
+	index, err := strconv.ParseUint(iface, 10, 32)
+	if err == nil {
+		return uint32(index)
+	}
+	return 0
+}
+
+func zebraNexthopGate(nexthop netip.Addr) netip.Addr {
+	if nexthop.Is6() && nexthop.Zone() != "" {
+		return nexthop.WithZone("")
+	}
+	return nexthop
+}
+
+func zebraSupportsIPv6LinkLocalIfindex(z *zebraClient) bool {
+	return z != nil && z.client != nil && z.client.Version > 4
+}
+
+func zebraNexthopForPath(path *table.Path, vrfID uint32, z *zebraClient) (zebra.Nexthop, bool) {
+	nexthop := path.GetNexthop()
+	zebraNexthop := zebra.Nexthop{
+		Gate:  zebraNexthopGate(nexthop),
+		VrfID: vrfID,
+	}
+	if isIPv6LinkLocalNexthop(nexthop) {
+		if !zebraSupportsIPv6LinkLocalIfindex(z) {
+			return zebra.Nexthop{}, false
+		}
+		zebraNexthop.Ifindex = linkLocalNexthopIfindex(path, z)
+		if zebraNexthop.Ifindex == 0 {
+			return zebra.Nexthop{}, false
+		}
+	}
+	return zebraNexthop, true
+}
+
 // applyToNewPathList applies cached nexthop state to newly added paths
 // in-place. This is called before propagateUpdate so that paths with
 // unreachable nexthops are marked invalid before being advertised.
@@ -45,7 +130,11 @@ func (m nexthopStateCache) applyToNewPathList(paths []*table.Path) {
 		if path == nil || path.IsWithdraw {
 			continue
 		}
-		metric, ok := m[path.GetNexthop()]
+		nexthop := path.GetNexthop()
+		if !isNexthopCacheableForNHT(nexthop) {
+			continue
+		}
+		metric, ok := m[nexthop]
 		if !ok {
 			continue
 		}
@@ -63,7 +152,11 @@ func (m nexthopStateCache) applyToPathList(paths []*table.Path) []*table.Path {
 		if path == nil || path.IsWithdraw {
 			continue
 		}
-		metric, ok := m[path.GetNexthop()]
+		nexthop := path.GetNexthop()
+		if !isNexthopCacheableForNHT(nexthop) {
+			continue
+		}
+		metric, ok := m[nexthop]
 		if !ok {
 			continue
 		}
@@ -92,6 +185,13 @@ func (m nexthopStateCache) applyToPathList(paths []*table.Path) []*table.Path {
 }
 
 func (m nexthopStateCache) updateByNexthopUpdate(body *zebra.NexthopUpdateBody) (updated bool) {
+	if body == nil {
+		return false
+	}
+	if !isNexthopCacheableForNHT(body.Prefix.Prefix) {
+		delete(m, body.Prefix.Prefix)
+		return false
+	}
 	if len(body.Nexthops) == 0 {
 		// If NEXTHOP_UPDATE message does not contain any nexthop, the given
 		// nexthop is unreachable.
@@ -114,11 +214,11 @@ func (m nexthopStateCache) filterPathToRegister(paths []*table.Path) []*table.Pa
 		// - Nil path
 		// - Withdrawn path
 		// - External path (advertised from Zebra) in order avoid sending back
-		// - Unspecified nexthop address
+		// - Nexthops that zebra cannot track safely with prefix-only RNH
 		// - Already registered nexthop
 		if path == nil || path.IsWithdraw || path.IsFromExternal() {
 			continue
-		} else if nexthop := path.GetNexthop(); nexthop.IsUnspecified() {
+		} else if nexthop := path.GetNexthop(); !isNexthopCacheableForNHT(nexthop) {
 			continue
 		} else if _, ok := m[nexthop]; ok {
 			continue
@@ -197,12 +297,18 @@ func newIPRouteBody(dst []*table.Path, vrfID uint32, z *zebraClient) (body *zebr
 		}
 	}()
 	for _, p := range paths {
-		nexthop.Gate = p.GetNexthop()
-		nexthop.VrfID = nhVrfID
+		var ok bool
+		nexthop, ok = zebraNexthopForPath(p, nhVrfID, z)
+		if !ok {
+			continue
+		}
 		if nhVrfID != vrfID {
-			addLabelToNexthop(path, z, &msgFlags, &nexthop)
+			addLabelToNexthop(p, z, &msgFlags, &nexthop)
 		}
 		nexthops = append(nexthops, nexthop)
+	}
+	if len(nexthops) == 0 {
+		return nil, false
 	}
 	plen, _ := strconv.ParseUint(l[1], 10, 8)
 	med, err := path.GetMed()
@@ -342,14 +448,46 @@ type mplsLabelParameter struct {
 }
 
 type zebraClient struct {
-	client       *zebra.Client
-	server       *BgpServer
-	nexthopCache nexthopStateCache
-	cacheLock    sync.Mutex
-	pathVrfMap   map[*table.Path]uint32 // vpn paths and nexthop vpn id
-	pathVrfMu    sync.RWMutex
-	mplsLabel    mplsLabelParameter
-	dead         chan struct{}
+	client            *zebra.Client
+	server            *BgpServer
+	nexthopCache      nexthopStateCache
+	cacheLock         sync.Mutex
+	pathVrfMap        map[*table.Path]uint32 // vpn paths and nexthop vpn id
+	pathVrfMu         sync.RWMutex
+	interfaceIndexMap map[string]uint32
+	interfaceMu       sync.RWMutex
+	mplsLabel         mplsLabelParameter
+	dead              chan struct{}
+}
+
+func (z *zebraClient) learnInterfaceIndex(command zebra.APIType, body zebra.InterfaceUpdate) {
+	if z == nil || body == nil {
+		return
+	}
+	name := body.InterfaceName()
+	index := body.InterfaceIndex()
+	if name == "" || index == 0 {
+		return
+	}
+	z.interfaceMu.Lock()
+	defer z.interfaceMu.Unlock()
+	if z.interfaceIndexMap == nil {
+		z.interfaceIndexMap = make(map[string]uint32)
+	}
+	if z.client != nil && command.IsInterfaceDelete(z.client.Version, z.client.Software) {
+		delete(z.interfaceIndexMap, name)
+		return
+	}
+	z.interfaceIndexMap[name] = index
+}
+
+func (z *zebraClient) interfaceIndexByName(name string) uint32 {
+	if z == nil || name == "" {
+		return 0
+	}
+	z.interfaceMu.RLock()
+	defer z.interfaceMu.RUnlock()
+	return z.interfaceIndexMap[name]
 }
 
 func (z *zebraClient) getPathListWithNexthopUpdate(body *zebra.NexthopUpdateBody) []*table.Path {
@@ -410,6 +548,8 @@ func (z *zebraClient) loop() {
 				break
 			}
 			switch body := msg.Body.(type) {
+			case zebra.InterfaceUpdate:
+				z.learnInterfaceIndex(msg.Header.Command, body)
 			case *zebra.IPRouteBody:
 				if path := newPathFromIPRouteMessage(z.server.logger, msg, z.client.Version, z.client.Software); path != nil {
 					if err := z.server.addPathStream("", []*table.Path{path}); err != nil {
@@ -607,10 +747,11 @@ func newZebraClient(s *BgpServer, url string, protos []string, version uint8, nh
 		cli.SendRedistribute(t, zebra.DefaultVrf)
 	}
 	w := &zebraClient{
-		client:       cli,
-		server:       s,
-		nexthopCache: make(nexthopStateCache),
-		pathVrfMap:   make(map[*table.Path]uint32),
+		client:            cli,
+		server:            s,
+		nexthopCache:      make(nexthopStateCache),
+		pathVrfMap:        make(map[*table.Path]uint32),
+		interfaceIndexMap: make(map[string]uint32),
 		mplsLabel: mplsLabelParameter{
 			rangeSize: mplsLabelRangeSize,
 			maps:      make(map[uint64]*table.Bitmap),

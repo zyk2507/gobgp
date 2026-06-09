@@ -90,11 +90,7 @@ func ProcessMessage(m *bgp.BGPMessage, peerInfo *PeerInfo, timestamp time.Time, 
 
 	if reach != nil {
 		family := bgp.NewFamily(reach.AFI, reach.SAFI)
-		nexthop := reach.Nexthop
-
-		if nexthop.IsUnspecified() && reach.LinkLocalNexthop.IsValid() && reach.LinkLocalNexthop.Is6() && reach.LinkLocalNexthop.IsLinkLocalUnicast() {
-			nexthop = reach.LinkLocalNexthop
-		}
+		nexthops := reach.Nexthops()
 
 		for _, nlri := range reach.Value {
 			// when build path from reach
@@ -106,7 +102,7 @@ func ProcessMessage(m *bgp.BGPMessage, peerInfo *PeerInfo, timestamp time.Time, 
 			// of path attrs faster
 			reachAttrs := []bgp.PathAttributeInterface{}
 			if !treatAsWithdraw {
-				nlriAttr, _ := bgp.NewPathAttributeMpReachNLRI(family, []bgp.PathNLRI{nlri}, nexthop)
+				nlriAttr, _ := bgp.NewPathAttributeMpReachNLRI(family, []bgp.PathNLRI{nlri}, nexthops...)
 				reachAttrs = makeAttributeList(attrs, nlriAttr)
 			}
 

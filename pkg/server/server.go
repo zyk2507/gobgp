@@ -2344,6 +2344,16 @@ func (s *BgpServer) addPathStream(vrfId string, pathList []*table.Path) error {
 	return err
 }
 
+func nexthopsForMPReachAttr(nexthop netip.Addr, nexthops []netip.Addr) []netip.Addr {
+	if len(nexthops) > 0 {
+		return nexthops
+	}
+	if nexthop.IsValid() {
+		return []netip.Addr{nexthop}
+	}
+	return nil
+}
+
 func apiutil2Path(path *apiutil.Path, isVRFTable bool, isWithdraw ...bool) (*table.Path, error) {
 	var source *table.PeerInfo
 	if path.PeerASN != 0 {
@@ -2363,6 +2373,7 @@ func apiutil2Path(path *apiutil.Path, isVRFTable bool, isWithdraw ...bool) (*tab
 	// extended community or NO_ADVERTISE community, with Tunnel Encapsulation Attribute 23
 	// and tunnel type 15. If it is not the case ignore update and log an error.
 	var nexthop netip.Addr
+	var nexthops []netip.Addr
 	isMPFlowSpec := false
 	pattrs := make([]bgp.PathAttributeInterface, 0)
 	seen := make(map[bgp.BGPAttrType]struct{})
@@ -2381,7 +2392,8 @@ func apiutil2Path(path *apiutil.Path, isVRFTable bool, isWithdraw ...bool) (*tab
 				return nil, fmt.Errorf("mp reach nlri value is empty")
 			}
 			isMPFlowSpec = mp.SAFI == bgp.SAFI_FLOW_SPEC_UNICAST || mp.SAFI == bgp.SAFI_FLOW_SPEC_VPN
-			nexthop = mp.Nexthop
+			nexthop = mp.EffectiveNexthop()
+			nexthops = mp.Nexthops()
 		default:
 			pattrs = append(pattrs, a)
 		}
@@ -2394,7 +2406,7 @@ func apiutil2Path(path *apiutil.Path, isVRFTable bool, isWithdraw ...bool) (*tab
 		attr, _ := bgp.NewPathAttributeNextHop(nexthop)
 		pattrs = append(pattrs, attr)
 	} else {
-		attr, _ := bgp.NewPathAttributeMpReachNLRI(path.Family, []bgp.PathNLRI{{NLRI: path.Nlri}}, nexthop)
+		attr, _ := bgp.NewPathAttributeMpReachNLRI(path.Family, []bgp.PathNLRI{{NLRI: path.Nlri}}, nexthopsForMPReachAttr(nexthop, nexthops)...)
 		pattrs = append(pattrs, attr)
 	}
 

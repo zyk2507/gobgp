@@ -469,7 +469,7 @@ func (path *Path) GetNexthop() netip.Addr {
 	}
 	attr = path.getPathAttr(bgp.BGP_ATTR_TYPE_MP_REACH_NLRI)
 	if attr != nil {
-		return attr.(*bgp.PathAttributeMpReachNLRI).Nexthop
+		return attr.(*bgp.PathAttributeMpReachNLRI).EffectiveNexthop()
 	}
 	return netip.Addr{}
 }

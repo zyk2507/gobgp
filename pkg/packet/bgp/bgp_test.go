@@ -1304,6 +1304,8 @@ func Test_MpReachNLRIWithIPv6PrefixWithLinkLocalNexthop(t *testing.T) {
 	assert.Equal(uint8(SAFI_UNICAST), p.SAFI)
 	assert.Equal(netip.MustParseAddr("2001:db8:1::1"), p.Nexthop)
 	assert.Equal(netip.MustParseAddr("fe80::1"), p.LinkLocalNexthop)
+	assert.Equal(netip.MustParseAddr("2001:db8:1::1"), p.EffectiveNexthop())
+	assert.Equal([]netip.Addr{netip.MustParseAddr("2001:db8:1::1"), netip.MustParseAddr("fe80::1")}, p.Nexthops())
 	nlri, _ := NewIPAddrPrefix(netip.MustParsePrefix("2010:ab8:1::/48"))
 	value := []PathNLRI{{NLRI: nlri}}
 	assert.Equal(value, p.Value)
@@ -1312,6 +1314,24 @@ func Test_MpReachNLRIWithIPv6PrefixWithLinkLocalNexthop(t *testing.T) {
 	assert.NoError(err)
 	// Test serialised value
 	assert.Equal(bufin, bufout)
+}
+
+func Test_MpReachNLRIEffectiveNexthopUsesLinkLocalWhenGlobalUnspecified(t *testing.T) {
+	assert := assert.New(t)
+
+	nlri, _ := NewIPAddrPrefix(netip.MustParsePrefix("2001:db8:1::/64"))
+	attr, err := NewPathAttributeMpReachNLRI(
+		RF_IPv6_UC,
+		[]PathNLRI{{NLRI: nlri}},
+		netip.MustParseAddr("::"),
+		netip.MustParseAddr("fe80::1"),
+	)
+	assert.NoError(err)
+
+	assert.Equal(netip.MustParseAddr("::"), attr.Nexthop)
+	assert.Equal(netip.MustParseAddr("fe80::1"), attr.LinkLocalNexthop)
+	assert.Equal(netip.MustParseAddr("fe80::1"), attr.EffectiveNexthop())
+	assert.Equal([]netip.Addr{netip.MustParseAddr("::"), netip.MustParseAddr("fe80::1")}, attr.Nexthops())
 }
 
 func Test_MpReachNLRIWithVPNv4Prefix(t *testing.T) {

@@ -141,6 +141,17 @@ func Test_newPathFromIPRouteMessage(t *testing.T) {
 }
 
 var testNextHop = netip.MustParseAddr("10.3.1.1")
+var testLinkLocalNextHop = netip.MustParseAddr("fe80::ade0")
+
+func newIPv6PathWithSourceAndNexthop(source *table.PeerInfo, nexthop netip.Addr) *table.Path {
+	nlri, _ := bgp.NewIPAddrPrefix(netip.MustParsePrefix("2001:db8:1::/64"))
+	mpReach, _ := bgp.NewPathAttributeMpReachNLRI(bgp.RF_IPv6_UC, []bgp.PathNLRI{{NLRI: nlri}}, nexthop)
+	attrs := []bgp.PathAttributeInterface{
+		bgp.NewPathAttributeOrigin(bgp.BGP_ORIGIN_ATTR_TYPE_INCOMPLETE),
+		mpReach,
+	}
+	return table.NewPath(bgp.RF_IPv6_UC, source, bgp.PathNLRI{NLRI: nlri}, false, attrs, time.Now(), false)
+}
 
 func TestApplyToPathList_UnreachableNoMED(t *testing.T) {
 	// Simulates the zebra-nht scenario: a path with no MED and an
@@ -300,6 +311,40 @@ func TestUpdateByNexthopUpdate_MetricChange(t *testing.T) {
 	assert.Equal(uint32(30), cache[testNextHop])
 }
 
+func TestUpdateByNexthopUpdate_IgnoresIPv6LinkLocal(t *testing.T) {
+	assert := assert.New(t)
+
+	cache := nexthopStateCache{
+		testLinkLocalNextHop: math.MaxUint32,
+	}
+	body := &zebra.NexthopUpdateBody{
+		Prefix: zebra.Prefix{
+			Prefix:    testLinkLocalNextHop,
+			PrefixLen: 128,
+		},
+	}
+
+	updated := cache.updateByNexthopUpdate(body)
+	assert.False(updated)
+	_, ok := cache[testLinkLocalNextHop]
+	assert.False(ok, "IPv6 link-local nexthop state must not stay in NHT cache")
+}
+
+func TestApplyToPathList_IgnoresIPv6LinkLocal(t *testing.T) {
+	assert := assert.New(t)
+
+	path := newIPv6PathWithSourceAndNexthop(nil, testLinkLocalNextHop)
+	cache := nexthopStateCache{
+		testLinkLocalNextHop: math.MaxUint32,
+	}
+
+	cache.applyToNewPathList([]*table.Path{path})
+	assert.False(path.IsNexthopInvalid)
+
+	updated := cache.applyToPathList([]*table.Path{path})
+	assert.Empty(updated)
+}
+
 // TestApplyToPathList_UnreachableToReachable verifies that an invalid path
 // becomes valid and gets a MED when the nexthop becomes reachable.
 func TestApplyToPathList_UnreachableToReachable(t *testing.T) {
@@ -389,4 +434,120 @@ func TestApplyToPathList_WithdrawIgnored(t *testing.T) {
 
 	updated := cache.applyToPathList([]*table.Path{path})
 	assert.Empty(updated, "withdraw paths must be skipped")
+}
+
+func TestNewNexthopRegisterBody_SkipsIPv6LinkLocal(t *testing.T) {
+	path := newIPv6PathWithSourceAndNexthop(nil, testLinkLocalNextHop)
+
+	body := newNexthopRegisterBody([]*table.Path{path}, nexthopStateCache{})
+
+	assert.Nil(t, body)
+}
+
+func TestNewIPRouteBody_LinkLocalNexthopUsesSourceIfindex(t *testing.T) {
+	assert := assert.New(t)
+
+	path := newIPv6PathWithSourceAndNexthop(
+		&table.PeerInfo{LinkLocalNexthopInterface: "4242"},
+		testLinkLocalNextHop,
+	)
+	z := &zebraClient{
+		client:     &zebra.Client{Version: 6, Software: zebra.NewSoftware(6, "")},
+		pathVrfMap: map[*table.Path]uint32{},
+	}
+
+	body, isWithdraw := newIPRouteBody([]*table.Path{path}, zebra.DefaultVrf, z)
+	assert.False(isWithdraw)
+	if assert.NotNil(body) && assert.Len(body.Nexthops, 1) {
+		assert.Equal(testLinkLocalNextHop, body.Nexthops[0].Gate)
+		assert.Equal(uint32(4242), body.Nexthops[0].Ifindex)
+	}
+}
+
+func TestNewIPRouteBody_LinkLocalNexthopStripsGateZone(t *testing.T) {
+	assert := assert.New(t)
+
+	path := newIPv6PathWithSourceAndNexthop(nil, netip.MustParseAddr("fe80::ade0%4242"))
+	z := &zebraClient{
+		client:     &zebra.Client{Version: 6, Software: zebra.NewSoftware(6, "")},
+		pathVrfMap: map[*table.Path]uint32{},
+	}
+
+	body, isWithdraw := newIPRouteBody([]*table.Path{path}, zebra.DefaultVrf, z)
+	assert.False(isWithdraw)
+	if assert.NotNil(body) && assert.Len(body.Nexthops, 1) {
+		assert.Equal(testLinkLocalNextHop, body.Nexthops[0].Gate)
+		assert.Equal(uint32(4242), body.Nexthops[0].Ifindex)
+	}
+}
+
+func TestNewIPRouteBody_LinkLocalNexthopUsesZebraInterfaceCache(t *testing.T) {
+	assert := assert.New(t)
+
+	path := newIPv6PathWithSourceAndNexthop(
+		&table.PeerInfo{LinkLocalNexthopInterface: "dn42"},
+		testLinkLocalNextHop,
+	)
+	z := &zebraClient{
+		client:            &zebra.Client{Version: 6, Software: zebra.NewSoftware(6, "")},
+		pathVrfMap:        map[*table.Path]uint32{},
+		interfaceIndexMap: map[string]uint32{"dn42": 4242},
+	}
+
+	body, isWithdraw := newIPRouteBody([]*table.Path{path}, zebra.DefaultVrf, z)
+	assert.False(isWithdraw)
+	if assert.NotNil(body) && assert.Len(body.Nexthops, 1) {
+		assert.Equal(testLinkLocalNextHop, body.Nexthops[0].Gate)
+		assert.Equal(uint32(4242), body.Nexthops[0].Ifindex)
+	}
+}
+
+func TestNewIPRouteBody_LinkLocalNexthopPrefersInterfaceNameCache(t *testing.T) {
+	assert := assert.New(t)
+
+	path := newIPv6PathWithSourceAndNexthop(
+		&table.PeerInfo{LinkLocalNexthopInterface: "4242"},
+		testLinkLocalNextHop,
+	)
+	z := &zebraClient{
+		client:            &zebra.Client{Version: 6, Software: zebra.NewSoftware(6, "")},
+		pathVrfMap:        map[*table.Path]uint32{},
+		interfaceIndexMap: map[string]uint32{"4242": 77},
+	}
+
+	body, isWithdraw := newIPRouteBody([]*table.Path{path}, zebra.DefaultVrf, z)
+	assert.False(isWithdraw)
+	if assert.NotNil(body) && assert.Len(body.Nexthops, 1) {
+		assert.Equal(testLinkLocalNextHop, body.Nexthops[0].Gate)
+		assert.Equal(uint32(77), body.Nexthops[0].Ifindex)
+	}
+}
+
+func TestNewIPRouteBody_SkipsUnscopedLinkLocalNexthop(t *testing.T) {
+	path := newIPv6PathWithSourceAndNexthop(nil, testLinkLocalNextHop)
+	z := &zebraClient{
+		client:     &zebra.Client{Version: 6, Software: zebra.NewSoftware(6, "")},
+		pathVrfMap: map[*table.Path]uint32{},
+	}
+
+	body, isWithdraw := newIPRouteBody([]*table.Path{path}, zebra.DefaultVrf, z)
+
+	assert.Nil(t, body)
+	assert.False(t, isWithdraw)
+}
+
+func TestNewIPRouteBody_SkipsLinkLocalNexthopForOldZAPI(t *testing.T) {
+	path := newIPv6PathWithSourceAndNexthop(
+		&table.PeerInfo{LinkLocalNexthopInterface: "4242"},
+		testLinkLocalNextHop,
+	)
+	z := &zebraClient{
+		client:     &zebra.Client{Version: 4, Software: zebra.NewSoftware(4, "")},
+		pathVrfMap: map[*table.Path]uint32{},
+	}
+
+	body, isWithdraw := newIPRouteBody([]*table.Path{path}, zebra.DefaultVrf, z)
+
+	assert.Nil(t, body)
+	assert.False(t, isWithdraw)
 }
