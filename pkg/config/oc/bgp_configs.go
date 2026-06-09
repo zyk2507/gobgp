@@ -1241,7 +1241,7 @@ type ZebraState struct {
 	MplsLabelRangeSize uint32 `mapstructure:"mpls-label-range-size" json:"mpls-label-range-size,omitempty"`
 	// original -> gobgp:software-name
 	// Configure zebra software name.
-	// frr4, cumulus, frr6, frr7, frr7.2, frr7.3, frr7.4, frr7.5, frr8, frr8.1 can be used.
+	// frr4, cumulus, frr6, frr7, frr7.2, frr7.3, frr7.4, frr7.5, frr8, frr8.1, frr8.2, frr10.7 can be used.
 	SoftwareName string `mapstructure:"software-name" json:"software-name,omitempty"`
 }
 
@@ -1271,7 +1271,7 @@ type ZebraConfig struct {
 	MplsLabelRangeSize uint32 `mapstructure:"mpls-label-range-size" json:"mpls-label-range-size,omitempty"`
 	// original -> gobgp:software-name
 	// Configure zebra software name.
-	// frr4, cumulus, frr6, frr7, frr7.2, frr7.3, frr7.4, frr7.5, frr8, frr8.1 can be used.
+	// frr4, cumulus, frr6, frr7, frr7.2, frr7.3, frr7.4, frr7.5, frr8, frr8.1, frr8.2, frr10.7 can be used.
 	SoftwareName string `mapstructure:"software-name" json:"software-name,omitempty"`
 }
 

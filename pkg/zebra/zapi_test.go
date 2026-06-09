@@ -86,9 +86,16 @@ func Test_interfaceUpdateBody(t *testing.T) {
 
 	addSize := map[uint8]uint8{2: 39, 3: 44, 4: 50, 5: 50, 6: 54}
 	for v := MinZapiVer; v <= MaxZapiVer; v++ {
+		software := NewSoftware(v, "")
+		ifNameSize := interfaceNameSize
+		bodySize := int(addSize[v])
+		if isLatestFrrSoftware(v, software) {
+			ifNameSize = osIfNameSize
+			bodySize = 62
+		}
 		// decodeFromBytes
-		buf := make([]byte, interfaceNameSize+addSize[v])
-		pos := interfaceNameSize
+		buf := make([]byte, ifNameSize+bodySize)
+		pos := ifNameSize
 		binary.BigEndian.PutUint32(buf[pos:], 1) // Index
 		pos += 4
 		buf[pos] = byte(interfaceActive) // Status
@@ -107,6 +114,10 @@ func Test_interfaceUpdateBody(t *testing.T) {
 			binary.BigEndian.PutUint32(buf[pos:], 10000)
 			pos += 4 // speed
 		}
+		if isLatestFrrSoftware(v, software) {
+			binary.BigEndian.PutUint32(buf[pos:], 100)
+			pos += 4 // txqlen
+		}
 		binary.BigEndian.PutUint32(buf[pos:], 1500)
 		pos += 4 // MTU
 		binary.BigEndian.PutUint32(buf[pos:], 1500)
@@ -116,6 +127,10 @@ func Test_interfaceUpdateBody(t *testing.T) {
 		if v == 6 { // "frr7.2", ""
 			binary.BigEndian.PutUint32(buf[pos:], 1)
 			pos += 4 // link Ifindex
+		}
+		if isLatestFrrSoftware(v, software) {
+			binary.BigEndian.PutUint32(buf[pos:], 0)
+			pos += 4 // zebra iftype
 		}
 		if v > 2 {
 			binary.BigEndian.PutUint32(buf[pos:], uint32(linkTypeEther))
@@ -131,11 +146,10 @@ func Test_interfaceUpdateBody(t *testing.T) {
 			// pos++
 		}
 		b := &interfaceUpdateBody{}
-		software := NewSoftware(v, "")
 		err := b.decodeFromBytes(buf, v, software)
 		assert.NoError(err)
 		assert.Equal("01:23:45:67:89:ab", b.hardwareAddr.String())
-		buf = make([]byte, interfaceNameSize+32) // size mismatch
+		buf = make([]byte, ifNameSize+32) // size mismatch
 		b = &interfaceUpdateBody{}
 		err = b.decodeFromBytes(buf, v, software)
 		assert.NotNil(err)
@@ -948,16 +962,6 @@ func Test_importLookupBody(t *testing.T) {
 func Test_NexthopRegisterBody(t *testing.T) {
 	assert := assert.New(t)
 
-	// Input binary
-	bufIn := []byte{
-		0x01, uint8(syscall.AF_INET >> 8), uint8(syscall.AF_INET & 0xff), 0x20, // connected(1 byte)=1, afi(2 bytes)=AF_INET, prefix_len(1 byte)=32
-		0xc0, 0xa8, 0x01, 0x01, // prefix(4 bytes)="192.168.1.1"
-		0x00, uint8(syscall.AF_INET6 >> 8), uint8(syscall.AF_INET6 & 0xff), 0x80, // connected(1 byte)=0, afi(2 bytes)=AF_INET6, prefix_len(1 byte)=128
-		0x20, 0x01, 0x0d, 0xb8, // prefix(16 bytes)="2001:db8:1:1::1"
-		0x00, 0x01, 0x00, 0x01,
-		0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x01,
-	}
 	command := map[uint8]APIType{
 		2: zapi3NexthopRegister,
 		3: zapi3NexthopRegister,
@@ -968,6 +972,24 @@ func Test_NexthopRegisterBody(t *testing.T) {
 	for v := MinZapiVer; v <= MaxZapiVer; v++ {
 		// Test decodeFromBytes()
 		software := NewSoftware(v, "")
+		bufIn := []byte{}
+		for _, nh := range []*RegisteredNexthop{
+			{
+				connected: 1,
+				Family:    uint16(syscall.AF_INET),
+				Prefix:    netip.MustParseAddr("192.168.1.1"),
+			},
+			{
+				connected: 0,
+				Family:    uint16(syscall.AF_INET6),
+				Prefix:    netip.MustParseAddr("2001:db8:1:1::1"),
+			},
+		} {
+			nhBuf, err := nh.serialize(v, software)
+			assert.NoError(err)
+			bufIn = append(bufIn, nhBuf...)
+		}
+
 		b := &NexthopRegisterBody{api: command[v].ToCommon(v, software)}
 		err := b.decodeFromBytes(bufIn, v, software)
 		assert.NoError(err)
@@ -992,7 +1014,7 @@ func Test_NexthopRegisterBody(t *testing.T) {
 func Test_NexthopUpdateBody(t *testing.T) {
 	assert := assert.New(t)
 
-	size := map[uint8]uint8{2: 21, 3: 21, 4: 22, 5: 26, 6: 34}
+	size := map[uint8]uint8{2: 21, 3: 21, 4: 22, 5: 26, 6: 44}
 	command := map[uint8]APIType{
 		2: zapi3NexthopUpdate,
 		3: zapi3NexthopUpdate,
@@ -1009,6 +1031,7 @@ func Test_NexthopUpdateBody(t *testing.T) {
 	}
 
 	for v := MinZapiVer; v <= MaxZapiVer; v++ {
+		software := NewSoftware(v, "")
 		// Input binary
 		bufIn := make([]byte, size[v])
 		pos := 0
@@ -1017,21 +1040,35 @@ func Test_NexthopUpdateBody(t *testing.T) {
 			copy(bufIn[pos:pos+4], []byte{0x00, 0x00, 0x00, 0x00})
 			pos += 4
 		}
+		if isLatestFrrSoftware(v, software) {
+			binary.BigEndian.PutUint16(bufIn[pos:], uint16(SafiUnicast))
+			pos += 2
+			// match prefix: AF_INET, prefix_len=32, prefix="192.168.1.1"
+			copy(bufIn[pos:pos+7], []byte{0x00, 0x02, 0x20, 0xc0, 0xa8, 0x01, 0x01})
+			pos += 7
+		}
 		// afi(2 bytes)=AF_INET, prefix_len(1 byte)=32, prefix(4 bytes)="192.168.1.1"
 		copy(bufIn[pos:pos+7], []byte{0x00, 0x02, 0x20, 0xc0, 0xa8, 0x01, 0x01})
 		pos += 7
 
 		if v > 4 { // Type(1byte), Instance(2byte)
-			copy(bufIn[pos:pos+3], []byte{byte(routeConnect), 0x00, 0x00})
+			copy(bufIn[pos:pos+3], []byte{byte(routeConnect.toEach(v, software)), 0x00, 0x00})
 			pos += 3
 		}
 		if v > 3 { // Distance
 			bufIn[pos] = 0
 			pos++
 		}
-		// metric(4 bytes)=1, number of nexthops(1 byte)=1
-		copy(bufIn[pos:pos+5], []byte{0x00, 0x00, 0x00, 0x01, 0x01})
-		pos += 5
+		// metric(4 bytes)=1, number of nexthops
+		binary.BigEndian.PutUint32(bufIn[pos:], 1)
+		pos += 4
+		if isLatestFrrSoftware(v, software) {
+			binary.BigEndian.PutUint16(bufIn[pos:], 1)
+			pos += 2
+		} else {
+			bufIn[pos] = 1
+			pos++
+		}
 		if v == 6 { // version == 6 and not frr6
 			binary.BigEndian.PutUint32(bufIn[pos:], 0) // vrfid
 			pos += 4
@@ -1051,7 +1088,6 @@ func Test_NexthopUpdateBody(t *testing.T) {
 		}
 
 		// Test decodeFromBytes()
-		software := NewSoftware(v, "")
 		b := &NexthopUpdateBody{API: command[v].ToCommon(v, software)}
 		err := b.decodeFromBytes(bufIn, v, software)
 		assert.NoError(err)
@@ -1074,8 +1110,9 @@ func Test_GetLabelChunkBody(t *testing.T) {
 	assert := assert.New(t)
 
 	// Test only with ZAPI version 5 and 6
-	routeType := RouteBGP
 	for v := uint8(5); v <= MaxZapiVer; v++ {
+		software := NewSoftware(v, "")
+		routeType := RouteBGP.toEach(v, software)
 		// decodeFromBytes
 		buf := make([]byte, 12)
 		buf[0] = byte(routeType)                // Route Type
@@ -1085,7 +1122,6 @@ func Test_GetLabelChunkBody(t *testing.T) {
 		binary.BigEndian.PutUint32(buf[8:], 89) // End
 
 		b := &GetLabelChunkBody{}
-		software := NewSoftware(v, "")
 		err := b.decodeFromBytes(buf, v, software)
 		assert.NoError(err)
 
