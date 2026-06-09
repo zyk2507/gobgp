@@ -89,8 +89,12 @@ func ProcessMessage(m *bgp.BGPMessage, peerInfo *PeerInfo, timestamp time.Time, 
 	}
 
 	if reach != nil {
-		nexthop := reach.Nexthop
 		family := bgp.NewFamily(reach.AFI, reach.SAFI)
+		nexthop := reach.Nexthop
+
+		if nexthop.IsUnspecified() && reach.LinkLocalNexthop.IsValid() && reach.LinkLocalNexthop.Is6() && reach.LinkLocalNexthop.IsLinkLocalUnicast() {
+			nexthop = reach.LinkLocalNexthop
+		}
 
 		for _, nlri := range reach.Value {
 			// when build path from reach

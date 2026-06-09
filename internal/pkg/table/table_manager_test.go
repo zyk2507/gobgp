@@ -1476,6 +1476,65 @@ func TestProcessBGPUpdate_8_mpunreach_path_ipv6(t *testing.T) {
 	assert.Equal(t, expectedNexthop, path.GetNexthop().String())
 }
 
+func TestProcessBGPUpdate_select_linklocal_nexthop_over_unspecified_global(t *testing.T) {
+	tm := NewTableManager(logger, []bgp.Family{bgp.RF_IPv6_UC})
+
+	nlri, _ := bgp.NewIPAddrPrefix(netip.MustParsePrefix("2001:123:123:1::/64"))
+	mpReach, _ := bgp.NewPathAttributeMpReachNLRI(
+		bgp.RF_IPv6_UC,
+		[]bgp.PathNLRI{{NLRI: nlri}},
+		netip.MustParseAddr("::"),
+		netip.MustParseAddr("fe80::ade0"),
+	)
+	pathAttributes := []bgp.PathAttributeInterface{
+		mpReach,
+		bgp.NewPathAttributeOrigin(0),
+		createAsPathAttribute([]uint32{65000}),
+		bgp.NewPathAttributeMultiExitDisc(200),
+		bgp.NewPathAttributeLocalPref(100),
+	}
+	bgpMessage := bgp.NewBGPUpdateMessage(nil, pathAttributes, nil)
+
+	pList, err := tm.ProcessUpdate(peerR1(), bgpMessage)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(pList))
+
+	path := pList[0]
+	expectedNexthop := netip.MustParseAddr("fe80::ade0")
+	assert.Equal(t, expectedNexthop, path.GetNexthop())
+
+	attr := path.getPathAttr(bgp.BGP_ATTR_TYPE_MP_REACH_NLRI)
+	pathNexthop := attr.(*bgp.PathAttributeMpReachNLRI)
+	assert.Equal(t, expectedNexthop, pathNexthop.Nexthop)
+}
+
+func TestProcessBGPUpdate_keeps_global_nexthop_over_linklocal(t *testing.T) {
+	tm := NewTableManager(logger, []bgp.Family{bgp.RF_IPv6_UC})
+
+	nlri, _ := bgp.NewIPAddrPrefix(netip.MustParsePrefix("2001:123:123:1::/64"))
+	mpReach, _ := bgp.NewPathAttributeMpReachNLRI(
+		bgp.RF_IPv6_UC,
+		[]bgp.PathNLRI{{NLRI: nlri}},
+		netip.MustParseAddr("2001:db8::1"),
+		netip.MustParseAddr("fe80::ade0"),
+	)
+	pathAttributes := []bgp.PathAttributeInterface{
+		mpReach,
+		bgp.NewPathAttributeOrigin(0),
+		createAsPathAttribute([]uint32{65000}),
+		bgp.NewPathAttributeMultiExitDisc(200),
+		bgp.NewPathAttributeLocalPref(100),
+	}
+	bgpMessage := bgp.NewBGPUpdateMessage(nil, pathAttributes, nil)
+
+	pList, err := tm.ProcessUpdate(peerR1(), bgpMessage)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(pList))
+
+	expectedNexthop := netip.MustParseAddr("2001:db8::1")
+	assert.Equal(t, expectedNexthop, pList[0].GetNexthop())
+}
+
 // handle bestpath lost
 func TestProcessBGPUpdate_bestpath_lost_ipv4(t *testing.T) {
 	tm := NewTableManager(logger, []bgp.Family{bgp.RF_IPv4_UC})
